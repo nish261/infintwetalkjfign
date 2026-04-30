@@ -19,13 +19,8 @@ RUN pip install --no-cache-dir --upgrade pip wheel packaging psutil ninja \
 COPY . /workspace/InfiniteTalk
 
 ENV INFINITETALK_ROOT=/workspace/InfiniteTalk \
-    INFINITETALK_WEIGHTS=/workspace/InfiniteTalk/weights \
+    INFINITETALK_WEIGHTS=/runpod-volume/infinitetalk/weights \
     INFINITETALK_STEPS=8 \
     INFINITETALK_SIZE=infinitetalk-480
-
-RUN hf download Wan-AI/Wan2.1-I2V-14B-480P --local-dir ./weights/Wan2.1-I2V-14B-480P \
-    && hf download TencentGameMate/chinese-wav2vec2-base --local-dir ./weights/chinese-wav2vec2-base \
-    && hf download TencentGameMate/chinese-wav2vec2-base model.safetensors --revision refs/pr/1 --local-dir ./weights/chinese-wav2vec2-base \
-    && hf download MeiGen-AI/InfiniteTalk --local-dir ./weights/InfiniteTalk
 
 CMD ["python", "runpod_app/worker.py"]

@@ -20,6 +20,57 @@ OUTPUT_DIR = Path(os.getenv("INFINITETALK_OUTPUT_DIR", "/workspace/outputs"))
 DEFAULT_SIZE = os.getenv("INFINITETALK_SIZE", "infinitetalk-480")
 DEFAULT_STEPS = int(os.getenv("INFINITETALK_STEPS", "8"))
 DEFAULT_TIMEOUT = int(os.getenv("INFINITETALK_TIMEOUT", "3600"))
+WEIGHTS_READY = False
+
+
+def _run(cmd: list[str], cwd: Path = ROOT, timeout: int = 3600) -> None:
+    result = subprocess.run(
+        cmd,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stdout[-6000:])
+
+
+def _ensure_weights() -> None:
+    global WEIGHTS_READY
+    if WEIGHTS_READY:
+        return
+
+    required = [
+        WEIGHTS / "Wan2.1-I2V-14B-480P",
+        WEIGHTS / "chinese-wav2vec2-base",
+        WEIGHTS / "InfiniteTalk/single/infinitetalk.safetensors",
+    ]
+    if all(path.exists() for path in required):
+        WEIGHTS_READY = True
+        return
+
+    WEIGHTS.mkdir(parents=True, exist_ok=True)
+    lock_dir = WEIGHTS.parent / ".download-lock"
+    while True:
+        try:
+            lock_dir.mkdir(parents=True)
+            break
+        except FileExistsError:
+            time.sleep(10)
+            if all(path.exists() for path in required):
+                WEIGHTS_READY = True
+                return
+
+    try:
+        _run(["hf", "download", "Wan-AI/Wan2.1-I2V-14B-480P", "--local-dir", str(WEIGHTS / "Wan2.1-I2V-14B-480P")], timeout=7200)
+        _run(["hf", "download", "TencentGameMate/chinese-wav2vec2-base", "--local-dir", str(WEIGHTS / "chinese-wav2vec2-base")], timeout=1800)
+        _run(["hf", "download", "TencentGameMate/chinese-wav2vec2-base", "model.safetensors", "--revision", "refs/pr/1", "--local-dir", str(WEIGHTS / "chinese-wav2vec2-base")], timeout=1800)
+        _run(["hf", "download", "MeiGen-AI/InfiniteTalk", "--local-dir", str(WEIGHTS / "InfiniteTalk")], timeout=3600)
+        WEIGHTS_READY = True
+    finally:
+        shutil.rmtree(lock_dir, ignore_errors=True)
 
 
 def _write_b64(data: str, dest: Path) -> Path:
@@ -82,6 +133,7 @@ def handler(job):
     work_dir = Path(tempfile.mkdtemp(prefix=f"infinitetalk-{job_id}-"))
 
     try:
+        _ensure_weights()
         source = _materialize_file(payload["source"], work_dir, "source")
         audio = _materialize_file(payload["audio"], work_dir, "audio.wav")
         prompt = payload.get("prompt") or "A person is talking naturally."
