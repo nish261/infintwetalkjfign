@@ -8,6 +8,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import unquote
 from urllib.parse import urlparse
 
 import requests
@@ -73,8 +74,18 @@ def _ensure_weights() -> None:
         shutil.rmtree(lock_dir, ignore_errors=True)
 
 
+def _suffix_from_data_url(data: str) -> str:
+    if not data.startswith("data:") or "," not in data:
+        return ""
+    mime_type = data[5:].split(";", 1)[0]
+    suffix = mimetypes.guess_extension(mime_type) or ""
+    if suffix == ".jpe":
+        return ".jpg"
+    return suffix
+
+
 def _write_b64(data: str, dest: Path) -> Path:
-    if "," in data and data[:64].startswith("data:"):
+    if "," in data and data[:128].startswith("data:"):
         data = data.split(",", 1)[1]
     dest.write_bytes(base64.b64decode(data))
     return dest
@@ -90,12 +101,28 @@ def _download(url: str, dest: Path) -> Path:
     return dest
 
 
-def _materialize_file(value: str, dest_dir: Path, fallback_name: str) -> Path:
+def _safe_filename(name: str) -> str:
+    clean = Path(unquote(name)).name
+    keep = []
+    for char in clean:
+        keep.append(char if char.isalnum() or char in ".-_" else "_")
+    clean = "".join(keep).strip("._")
+    return clean or "upload"
+
+
+def _materialize_file(value: str, dest_dir: Path, fallback_name: str, original_name: str | None = None) -> Path:
     parsed = urlparse(value)
-    suffix = Path(parsed.path).suffix if parsed.scheme in {"http", "https"} else ""
-    dest = dest_dir / (fallback_name + (suffix or ""))
     if parsed.scheme in {"http", "https"}:
+        suffix = Path(parsed.path).suffix
+        dest = dest_dir / (fallback_name + (suffix or ""))
         return _download(value, dest)
+
+    if original_name:
+        dest = dest_dir / _safe_filename(original_name)
+    else:
+        suffix = _suffix_from_data_url(value) or Path(fallback_name).suffix
+        base = Path(fallback_name).stem
+        dest = dest_dir / f"{base}{suffix}"
     return _write_b64(value, dest)
 
 
@@ -134,8 +161,8 @@ def handler(job):
 
     try:
         _ensure_weights()
-        source = _materialize_file(payload["source"], work_dir, "source")
-        audio = _materialize_file(payload["audio"], work_dir, "audio.wav")
+        source = _materialize_file(payload["source"], work_dir, "source", payload.get("source_name"))
+        audio = _materialize_file(payload["audio"], work_dir, "audio.wav", payload.get("audio_name"))
         prompt = payload.get("prompt") or "A person is talking naturally."
         run_name = f"infinitetalk-{job_id}-{int(time.time())}"
         input_json = work_dir / "input.json"
@@ -205,6 +232,8 @@ def handler(job):
 
         upload_result = _maybe_upload(output_path)
         return {"ok": True, "result": upload_result, "log_tail": result.stdout[-2000:]}
+    except Exception as exc:
+        return {"error": "worker_exception", "message": str(exc)[-6000:]}
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
