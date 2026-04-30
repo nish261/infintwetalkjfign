@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>InfiniteTalk Studio</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #11100c;
+        --panel: rgba(255, 248, 224, 0.09);
+        --line: rgba(255, 248, 224, 0.18);
+        --text: #fff8e0;
+        --muted: #c8bda0;
+        --accent: #f6b73c;
+        --accent-2: #58d6b5;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Georgia, "Times New Roman", serif;
+        background:
+          radial-gradient(circle at 20% 10%, rgba(246, 183, 60, 0.22), transparent 32rem),
+          radial-gradient(circle at 85% 20%, rgba(88, 214, 181, 0.16), transparent 28rem),
+          linear-gradient(135deg, #18130d, var(--bg));
+        color: var(--text);
+      }
+      main {
+        width: min(980px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 48px 0;
+      }
+      h1 {
+        font-size: clamp(42px, 8vw, 86px);
+        line-height: 0.88;
+        margin: 0 0 14px;
+        letter-spacing: -0.06em;
+      }
+      p { color: var(--muted); font-size: 18px; }
+      .grid {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 22px;
+        margin-top: 34px;
+      }
+      .card {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        backdrop-filter: blur(18px);
+        border-radius: 28px;
+        padding: 24px;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+      }
+      label {
+        display: block;
+        margin: 18px 0 8px;
+        color: var(--text);
+        font-weight: 700;
+      }
+      input, textarea, select, button {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 13px 14px;
+        background: rgba(0, 0, 0, 0.28);
+        color: var(--text);
+        font: inherit;
+      }
+      textarea { min-height: 94px; resize: vertical; }
+      button {
+        margin-top: 22px;
+        cursor: pointer;
+        border: 0;
+        background: linear-gradient(135deg, var(--accent), #f06d35);
+        color: #201006;
+        font-weight: 800;
+      }
+      button:disabled { opacity: 0.55; cursor: wait; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .status {
+        min-height: 240px;
+        white-space: pre-wrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #f8ebc8;
+        font-size: 14px;
+      }
+      video { width: 100%; border-radius: 18px; margin-top: 16px; border: 1px solid var(--line); }
+      a { color: var(--accent-2); }
+      @media (max-width: 760px) {
+        main { padding: 28px 0; }
+        .grid, .row { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>InfiniteTalk Studio</h1>
+      <p>Upload an image or video, add your own audio, and generate a talking video on a scale-to-zero RunPod GPU endpoint.</p>
+      <div class="grid">
+        <form class="card" id="jobForm">
+          <label for="source">Image or video</label>
+          <input id="source" name="source" type="file" accept="image/*,video/*" required />
+
+          <label for="audio">Voice/audio</label>
+          <input id="audio" name="audio" type="file" accept="audio/*,.wav,.mp3,.m4a" required />
+
+          <label for="prompt">Prompt</label>
+          <textarea id="prompt" name="prompt">A person is talking naturally.</textarea>
+
+          <div class="row">
+            <div>
+              <label for="sample_steps">Steps</label>
+              <select id="sample_steps" name="sample_steps">
+                <option value="8">8 fast</option>
+                <option value="12">12 balanced</option>
+                <option value="20">20 higher quality</option>
+                <option value="40">40 original</option>
+              </select>
+            </div>
+            <div>
+              <label for="size">Size</label>
+              <select id="size" name="size">
+                <option value="infinitetalk-480">480p cheaper</option>
+                <option value="infinitetalk-720">720p slower</option>
+              </select>
+            </div>
+          </div>
+
+          <button id="submit" type="submit">Generate talking video</button>
+        </form>
+        <section class="card">
+          <h2>Job</h2>
+          <div class="status" id="status">Waiting for an upload.</div>
+          <div id="result"></div>
+        </section>
+      </div>
+    </main>
+    <script>
+      const form = document.getElementById("jobForm");
+      const button = document.getElementById("submit");
+      const statusEl = document.getElementById("status");
+      const resultEl = document.getElementById("result");
+
+      function show(obj) {
+        statusEl.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+      }
+
+      function renderResult(output) {
+        const result = output?.output?.result || output?.result;
+        if (!result) return;
+        if (result.url) {
+          resultEl.innerHTML = `<video src="${result.url}" controls></video><p><a href="${result.url}" target="_blank" rel="noreferrer">Open video</a></p>`;
+        } else if (result.base64) {
+          const src = `data:${result.mime_type || "video/mp4"};base64,${result.base64}`;
+          resultEl.innerHTML = `<video src="${src}" controls></video>`;
+        }
+      }
+
+      async function poll(jobId) {
+        for (;;) {
+          const response = await fetch(`/api/jobs/${jobId}`);
+          const body = await response.json();
+          show(body);
+          renderResult(body);
+          if (["COMPLETED", "FAILED", "CANCELLED"].includes(body.status)) {
+            button.disabled = false;
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+        }
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        button.disabled = true;
+        resultEl.innerHTML = "";
+        show("Uploading and submitting job...");
+        const response = await fetch("/api/jobs", { method: "POST", body: new FormData(form) });
+        const body = await response.json();
+        show(body);
+        const jobId = body.id || body.job_id;
+        if (!response.ok || !jobId) {
+          button.disabled = false;
+          return;
+        }
+        poll(jobId);
+      });
+    </script>
+  </body>
+</html>
