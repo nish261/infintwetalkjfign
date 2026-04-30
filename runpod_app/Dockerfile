@@ -1,4 +1,4 @@
-FROM runpod/pytorch:2.4.1-py3.10-cuda12.1.1-devel-ubuntu22.04
+FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
 
 WORKDIR /workspace/InfiniteTalk
 
