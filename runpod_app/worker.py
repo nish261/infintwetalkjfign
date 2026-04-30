@@ -38,6 +38,20 @@ def _run(cmd: list[str], cwd: Path = ROOT, timeout: int = 3600) -> None:
         raise RuntimeError(result.stdout[-6000:])
 
 
+def _hf_download(args: list[str], local_dir: Path, timeout: int) -> None:
+    cmd = ["hf", "download", *args, "--local-dir", str(local_dir)]
+    try:
+        _run(cmd, timeout=timeout)
+    except RuntimeError as exc:
+        message = str(exc)
+        if "Invalid metadata file" not in message and "Disk quota exceeded" not in message:
+            raise
+        shutil.rmtree(local_dir / ".cache", ignore_errors=True)
+        for partial in local_dir.rglob("*.incomplete"):
+            partial.unlink(missing_ok=True)
+        _run(cmd, timeout=timeout)
+
+
 def _ensure_weights() -> None:
     global WEIGHTS_READY
     if WEIGHTS_READY:
@@ -65,10 +79,10 @@ def _ensure_weights() -> None:
                 return
 
     try:
-        _run(["hf", "download", "Wan-AI/Wan2.1-I2V-14B-480P", "--local-dir", str(WEIGHTS / "Wan2.1-I2V-14B-480P")], timeout=7200)
-        _run(["hf", "download", "TencentGameMate/chinese-wav2vec2-base", "--local-dir", str(WEIGHTS / "chinese-wav2vec2-base")], timeout=1800)
-        _run(["hf", "download", "TencentGameMate/chinese-wav2vec2-base", "model.safetensors", "--revision", "refs/pr/1", "--local-dir", str(WEIGHTS / "chinese-wav2vec2-base")], timeout=1800)
-        _run(["hf", "download", "MeiGen-AI/InfiniteTalk", "--local-dir", str(WEIGHTS / "InfiniteTalk")], timeout=3600)
+        _hf_download(["Wan-AI/Wan2.1-I2V-14B-480P"], WEIGHTS / "Wan2.1-I2V-14B-480P", timeout=7200)
+        _hf_download(["TencentGameMate/chinese-wav2vec2-base"], WEIGHTS / "chinese-wav2vec2-base", timeout=1800)
+        _hf_download(["TencentGameMate/chinese-wav2vec2-base", "model.safetensors", "--revision", "refs/pr/1"], WEIGHTS / "chinese-wav2vec2-base", timeout=1800)
+        _hf_download(["MeiGen-AI/InfiniteTalk"], WEIGHTS / "InfiniteTalk", timeout=3600)
         WEIGHTS_READY = True
     finally:
         shutil.rmtree(lock_dir, ignore_errors=True)
