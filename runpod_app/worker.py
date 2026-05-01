@@ -1,5 +1,6 @@
 import base64
 import json
+import math
 import mimetypes
 import os
 import shutil
@@ -21,6 +22,9 @@ OUTPUT_DIR = Path(os.getenv("INFINITETALK_OUTPUT_DIR", "/workspace/outputs"))
 DEFAULT_SIZE = os.getenv("INFINITETALK_SIZE", "infinitetalk-480")
 DEFAULT_STEPS = int(os.getenv("INFINITETALK_STEPS", "8"))
 DEFAULT_TIMEOUT = int(os.getenv("INFINITETALK_TIMEOUT", "3600"))
+DEFAULT_MODE = os.getenv("INFINITETALK_MODE", "streaming")
+DEFAULT_FRAME_NUM = int(os.getenv("INFINITETALK_FRAME_NUM", "81"))
+DEFAULT_OFFLOAD_MODEL = os.getenv("INFINITETALK_OFFLOAD_MODEL", "false")
 WEIGHTS_READY = False
 
 
@@ -140,6 +144,16 @@ def _materialize_file(value: str, dest_dir: Path, fallback_name: str, original_n
     return _write_b64(value, dest)
 
 
+def _truthy(value) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _wan_frame_count(value: int) -> int:
+    # InfiniteTalk expects frame counts in the Wan 4n+1 cadence.
+    value = max(5, int(value))
+    remainder = value % 4
+    return value if remainder == 1 else value + ((1 - remainder) % 4)
+
 
 def handler(job):
     payload = job.get("input") or {}
@@ -172,6 +186,13 @@ def handler(job):
             encoding="utf-8",
         )
 
+        mode = str(payload.get("mode") or DEFAULT_MODE)
+        frame_num = _wan_frame_count(int(payload.get("frame_num", DEFAULT_FRAME_NUM)))
+        duration_seconds = payload.get("duration_seconds")
+        max_frame_num = payload.get("max_frame_num")
+        if max_frame_num is None and duration_seconds:
+            max_frame_num = _wan_frame_count(math.ceil(float(duration_seconds) * 16))
+
         cmd = [
             "python",
             "generate_infinitetalk.py",
@@ -188,14 +209,22 @@ def handler(job):
             "--sample_steps",
             str(int(payload.get("sample_steps", DEFAULT_STEPS))),
             "--mode",
-            payload.get("mode", "streaming"),
+            mode,
             "--motion_frame",
             str(int(payload.get("motion_frame", 9))),
+            "--frame_num",
+            str(frame_num),
             "--save_file",
             str(save_file),
-            "--offload_model", "False",
             "--t5_cpu",
         ]
+
+        if max_frame_num is not None:
+            cmd.extend(["--max_frame_num", str(_wan_frame_count(int(max_frame_num)))])
+
+        offload_model = payload.get("offload_model", DEFAULT_OFFLOAD_MODEL)
+        if str(offload_model).strip().lower() != "auto":
+            cmd.extend(["--offload_model", "True" if _truthy(offload_model) else "False"])
 
         if payload.get("num_persistent_param_in_dit") is not None:
             cmd.extend([
@@ -236,9 +265,20 @@ def handler(job):
                 resp = requests.put(upload_url, data=handle, headers={"Content-Type": content_type}, timeout=300)
             resp.raise_for_status()
             public_url = os.getenv("RESULT_PUBLIC_URL") or upload_url.split("?", 1)[0]
-            return {"video_url": public_url, "log_tail": result.stdout[-2000:]}
+            return {
+                "ok": True,
+                "video_url": public_url,
+                "result": {"url": public_url, "mime_type": "video/mp4", "filename": output_path.name},
+                "log_tail": result.stdout[-2000:],
+            }
 
-        return {"video": base64.b64encode(output_path.read_bytes()).decode("utf-8"), "log_tail": result.stdout[-2000:]}
+        video = base64.b64encode(output_path.read_bytes()).decode("utf-8")
+        return {
+            "ok": True,
+            "video": video,
+            "result": {"base64": video, "mime_type": "video/mp4", "filename": output_path.name},
+            "log_tail": result.stdout[-2000:],
+        }
     except Exception as exc:
         return {"error": "worker_exception", "message": str(exc)[-6000:]}
     finally:
