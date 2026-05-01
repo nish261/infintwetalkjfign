@@ -140,34 +140,13 @@ def _materialize_file(value: str, dest_dir: Path, fallback_name: str, original_n
     return _write_b64(value, dest)
 
 
-def _maybe_upload(output_path: Path) -> dict:
-    upload_url = os.getenv("RESULT_UPLOAD_URL")
-    if upload_url:
-        content_type = mimetypes.guess_type(output_path.name)[0] or "video/mp4"
-        with output_path.open("rb") as handle:
-            response = requests.put(upload_url, data=handle, headers={"Content-Type": content_type}, timeout=300)
-        response.raise_for_status()
-        public_url = os.getenv("RESULT_PUBLIC_URL")
-        return {"url": public_url or upload_url.split("?", 1)[0]}
-
-    max_inline_mb = int(os.getenv("MAX_INLINE_RESULT_MB", "40"))
-    if output_path.stat().st_size > max_inline_mb * 1024 * 1024:
-        return {
-            "error": "result_too_large_for_inline_return",
-            "path": str(output_path),
-            "message": "Set RESULT_UPLOAD_URL/RESULT_PUBLIC_URL or mount persistent storage for large videos.",
-        }
-    return {
-        "filename": output_path.name,
-        "mime_type": "video/mp4",
-        "base64": base64.b64encode(output_path.read_bytes()).decode("utf-8"),
-    }
-
 
 def handler(job):
     payload = job.get("input") or {}
-    if not payload.get("source") or not payload.get("audio"):
-        return {"error": "source and audio are required"}
+    source_val = payload.get("source") or payload.get("image_url")
+    audio_val = payload.get("audio") or payload.get("wav_url")
+    if not source_val or not audio_val:
+        return {"error": "source/image_url and audio/wav_url are required"}
 
     job_id = str(job.get("id") or uuid.uuid4())
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -175,8 +154,8 @@ def handler(job):
 
     try:
         _ensure_weights()
-        source = _materialize_file(payload["source"], work_dir, "source", payload.get("source_name"))
-        audio = _materialize_file(payload["audio"], work_dir, "audio.wav", payload.get("audio_name"))
+        source = _materialize_file(source_val, work_dir, "source", payload.get("source_name"))
+        audio = _materialize_file(audio_val, work_dir, "audio.wav", payload.get("audio_name"))
         prompt = payload.get("prompt") or "A person is talking naturally."
         run_name = f"infinitetalk-{job_id}-{int(time.time())}"
         input_json = work_dir / "input.json"
@@ -248,8 +227,16 @@ def handler(job):
         if result.returncode != 0 or not output_path.exists():
             return {"error": "generation_failed", "returncode": result.returncode, "log_tail": result.stdout[-6000:]}
 
-        upload_result = _maybe_upload(output_path)
-        return {"ok": True, "result": upload_result, "log_tail": result.stdout[-2000:]}
+        upload_url = os.getenv("RESULT_UPLOAD_URL")
+        if upload_url:
+            content_type = "video/mp4"
+            with output_path.open("rb") as handle:
+                resp = requests.put(upload_url, data=handle, headers={"Content-Type": content_type}, timeout=300)
+            resp.raise_for_status()
+            public_url = os.getenv("RESULT_PUBLIC_URL") or upload_url.split("?", 1)[0]
+            return {"video_url": public_url, "log_tail": result.stdout[-2000:]}
+
+        return {"video": base64.b64encode(output_path.read_bytes()).decode("utf-8"), "log_tail": result.stdout[-2000:]}
     except Exception as exc:
         return {"error": "worker_exception", "message": str(exc)[-6000:]}
     finally:
