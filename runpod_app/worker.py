@@ -28,10 +28,14 @@ DEFAULT_OFFLOAD_MODEL = os.getenv("INFINITETALK_OFFLOAD_MODEL", "false")
 WEIGHTS_READY = False
 
 
-def _run(cmd: list[str], cwd: Path = ROOT, timeout: int = 3600) -> None:
+_HF_ENV = {**os.environ, "HF_HUB_DISABLE_XET": "1"}
+
+
+def _run(cmd: list[str], cwd: Path = ROOT, timeout: int = 3600, env: dict | None = None) -> None:
     result = subprocess.run(
         cmd,
         cwd=cwd,
+        env=env,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -45,7 +49,7 @@ def _run(cmd: list[str], cwd: Path = ROOT, timeout: int = 3600) -> None:
 def _hf_download(args: list[str], local_dir: Path, timeout: int) -> None:
     cmd = ["hf", "download", *args, "--local-dir", str(local_dir)]
     try:
-        _run(cmd, timeout=timeout)
+        _run(cmd, timeout=timeout, env=_HF_ENV)
     except RuntimeError as exc:
         message = str(exc)
         if "Invalid metadata file" not in message and "Disk quota exceeded" not in message:
