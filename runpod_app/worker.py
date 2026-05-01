@@ -155,6 +155,20 @@ def _wan_frame_count(value: int) -> int:
     return value if remainder == 1 else value + ((1 - remainder) % 4)
 
 
+def job_log_path(job_id: str) -> Path:
+    return OUTPUT_DIR / f"{_safe_filename(job_id)}.log"
+
+
+def _tail(path: Path, max_chars: int = 6000) -> str:
+    if not path.exists():
+        return ""
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        handle.seek(max(0, size - max_chars * 2))
+        return handle.read().decode("utf-8", errors="replace")[-max_chars:]
+
+
 def handler(job):
     payload = job.get("input") or {}
     source_val = payload.get("source") or payload.get("image_url")
@@ -174,6 +188,7 @@ def handler(job):
         run_name = f"infinitetalk-{job_id}-{int(time.time())}"
         input_json = work_dir / "input.json"
         save_file = OUTPUT_DIR / run_name
+        log_path = job_log_path(job_id)
 
         input_json.write_text(
             json.dumps(
@@ -244,19 +259,24 @@ def handler(job):
             cmd.extend(["--sample_audio_guide_scale", str(float(payload.get("sample_audio_guide_scale", 2.0)))])
             cmd.extend(["--sample_shift", str(float(payload.get("sample_shift", 2.0)))])
 
-        result = subprocess.run(
-            cmd,
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=int(payload.get("timeout", DEFAULT_TIMEOUT)),
-            check=False,
-        )
+        with log_path.open("w", encoding="utf-8") as log:
+            log.write("COMMAND " + json.dumps(cmd) + "\n")
+            log.flush()
+            result = subprocess.run(
+                cmd,
+                cwd=ROOT,
+                text=True,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                timeout=int(payload.get("timeout", DEFAULT_TIMEOUT)),
+                check=False,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            )
 
         output_path = save_file.with_suffix(".mp4")
+        log_tail = _tail(log_path)
         if result.returncode != 0 or not output_path.exists():
-            return {"error": "generation_failed", "returncode": result.returncode, "log_tail": result.stdout[-6000:]}
+            return {"error": "generation_failed", "returncode": result.returncode, "log_tail": log_tail}
 
         upload_url = os.getenv("RESULT_UPLOAD_URL")
         if upload_url:
@@ -269,7 +289,7 @@ def handler(job):
                 "ok": True,
                 "video_url": public_url,
                 "result": {"url": public_url, "mime_type": "video/mp4", "filename": output_path.name},
-                "log_tail": result.stdout[-2000:],
+                "log_tail": log_tail[-2000:],
             }
 
         video = base64.b64encode(output_path.read_bytes()).decode("utf-8")
@@ -277,7 +297,7 @@ def handler(job):
             "ok": True,
             "video": video,
             "result": {"base64": video, "mime_type": "video/mp4", "filename": output_path.name},
-            "log_tail": result.stdout[-2000:],
+            "log_tail": log_tail[-2000:],
         }
     except Exception as exc:
         return {"error": "worker_exception", "message": str(exc)[-6000:]}

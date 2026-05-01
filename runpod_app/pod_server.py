@@ -4,11 +4,22 @@ import uuid
 
 from fastapi import FastAPI
 
-from runpod_app.worker import handler
+from runpod_app.worker import handler, job_log_path
 
 
 app = FastAPI()
 jobs: dict[str, dict] = {}
+
+
+def _log_tail(job_id: str, max_chars: int = 6000) -> str:
+    path = job_log_path(job_id)
+    if not path.exists():
+        return ""
+    with path.open("rb") as handle:
+        handle.seek(0, 2)
+        size = handle.tell()
+        handle.seek(max(0, size - max_chars * 2))
+        return handle.read().decode("utf-8", errors="replace")[-max_chars:]
 
 
 def _run_job(job_id: str, payload: dict) -> None:
@@ -76,4 +87,7 @@ def runsync(payload: dict):
 
 @app.get("/status/{job_id}")
 def status(job_id: str):
-    return jobs.get(job_id) or {"id": job_id, "status": "NOT_FOUND"}
+    job = jobs.get(job_id) or {"id": job_id, "status": "NOT_FOUND"}
+    if job.get("status") in {"IN_PROGRESS", "IN_QUEUE"}:
+        return {**job, "log_tail": _log_tail(job_id)}
+    return job
