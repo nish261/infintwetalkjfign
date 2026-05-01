@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt /workspace/InfiniteTalk/requirements.txt
 
 RUN printf '%s\n' \
-    'diffusers==0.31.0' \
+    'diffusers==0.33.1' \
     'xfuser==0.4.1' \
     'transformers>=4.49.0,<5' \
     'tokenizers>=0.20.3,<0.22' \
