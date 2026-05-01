@@ -57,7 +57,25 @@ def _hf_download(args: list[str], local_dir: Path, timeout: int) -> None:
         shutil.rmtree(local_dir / ".cache", ignore_errors=True)
         for partial in local_dir.rglob("*.incomplete"):
             partial.unlink(missing_ok=True)
-        _run(cmd, timeout=timeout)
+        _run(cmd, timeout=timeout, env=_HF_ENV)
+
+
+def _weights_valid() -> bool:
+    required = [
+        WEIGHTS / "Wan2.1-I2V-14B-480P",
+        WEIGHTS / "chinese-wav2vec2-base",
+        WEIGHTS / "InfiniteTalk/single/infinitetalk.safetensors",
+    ]
+    if not all(path.exists() for path in required):
+        return False
+    # Validate that JSON config files aren't empty/corrupt (can happen after a crashed XET download)
+    for json_path in (WEIGHTS / "Wan2.1-I2V-14B-480P").rglob("*.json"):
+        try:
+            if json_path.stat().st_size == 0:
+                return False
+        except OSError:
+            return False
+    return True
 
 
 def _ensure_weights() -> None:
@@ -65,12 +83,7 @@ def _ensure_weights() -> None:
     if WEIGHTS_READY:
         return
 
-    required = [
-        WEIGHTS / "Wan2.1-I2V-14B-480P",
-        WEIGHTS / "chinese-wav2vec2-base",
-        WEIGHTS / "InfiniteTalk/single/infinitetalk.safetensors",
-    ]
-    if all(path.exists() for path in required):
+    if _weights_valid():
         WEIGHTS_READY = True
         return
 
