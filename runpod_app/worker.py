@@ -61,6 +61,7 @@ def _hf_download(args: list[str], local_dir: Path, timeout: int) -> None:
 
 
 def _weights_valid() -> bool:
+    import json as _json
     required = [
         WEIGHTS / "Wan2.1-I2V-14B-480P",
         WEIGHTS / "chinese-wav2vec2-base",
@@ -68,12 +69,11 @@ def _weights_valid() -> bool:
     ]
     if not all(path.exists() for path in required):
         return False
-    # Validate that JSON config files aren't empty/corrupt (can happen after a crashed XET download)
+    # Parse every JSON in the WAN dir — a crashed XET download can leave partial content
     for json_path in (WEIGHTS / "Wan2.1-I2V-14B-480P").rglob("*.json"):
         try:
-            if json_path.stat().st_size == 0:
-                return False
-        except OSError:
+            _json.loads(json_path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
             return False
     return True
 
