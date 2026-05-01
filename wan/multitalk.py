@@ -646,7 +646,7 @@ class InfiniteTalkPipeline:
 
                 # prepare condition and uncondition configs
                 arg_c = {
-                    'context': [context],
+                    'context': [context[0]],
                     'clip_fea': clip_context,
                     'seq_len': max_seq_len,
                     'y': y,
@@ -656,7 +656,7 @@ class InfiniteTalkPipeline:
 
 
                 arg_null_text = {
-                    'context': [context_null],
+                    'context': [context_null[0]],
                     'clip_fea': clip_context,
                     'seq_len': max_seq_len,
                     'y': y,
@@ -665,7 +665,7 @@ class InfiniteTalkPipeline:
                 }
 
                 arg_null_audio = {
-                    'context': [context],
+                    'context': [context[0]],
                     'clip_fea': clip_context,
                     'seq_len': max_seq_len,
                     'y': y,
@@ -675,7 +675,7 @@ class InfiniteTalkPipeline:
 
 
                 arg_null = {
-                    'context': [context_null],
+                    'context': [context_null[0]],
                     'clip_fea': clip_context,
                     'seq_len': max_seq_len,
                     'y': y,
