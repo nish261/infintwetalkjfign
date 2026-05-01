@@ -60,22 +60,7 @@ def _hf_download(args: list[str], local_dir: Path, timeout: int) -> None:
         _run(cmd, timeout=timeout, env=_HF_ENV)
 
 
-def _weights_valid() -> bool:
-    import json as _json
-    required = [
-        WEIGHTS / "Wan2.1-I2V-14B-480P",
-        WEIGHTS / "chinese-wav2vec2-base",
-        WEIGHTS / "InfiniteTalk/single/infinitetalk.safetensors",
-    ]
-    if not all(path.exists() for path in required):
-        return False
-    # Parse every JSON in the WAN dir — a crashed XET download can leave partial content
-    for json_path in (WEIGHTS / "Wan2.1-I2V-14B-480P").rglob("*.json"):
-        try:
-            _json.loads(json_path.read_text(encoding="utf-8", errors="replace"))
-        except Exception:
-            return False
-    return True
+_SENTINEL = WEIGHTS / ".weights-complete"
 
 
 def _ensure_weights() -> None:
@@ -83,27 +68,40 @@ def _ensure_weights() -> None:
     if WEIGHTS_READY:
         return
 
-    if _weights_valid():
+    if _SENTINEL.exists():
         WEIGHTS_READY = True
         return
 
-    WEIGHTS.mkdir(parents=True, exist_ok=True)
+    # Clear any stale lock from a previous crashed download
     lock_dir = WEIGHTS.parent / ".download-lock"
-    while True:
-        try:
-            lock_dir.mkdir(parents=True)
-            break
-        except FileExistsError:
-            time.sleep(10)
-            if all(path.exists() for path in required):
+    if lock_dir.exists():
+        stale = True
+        for _ in range(3):
+            time.sleep(5)
+            if _SENTINEL.exists():
                 WEIGHTS_READY = True
                 return
+        if stale:
+            shutil.rmtree(lock_dir, ignore_errors=True)
+
+    try:
+        lock_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    WEIGHTS.mkdir(parents=True, exist_ok=True)
+
+    # Wipe any previously corrupt WAN dir before re-downloading
+    wan_dir = WEIGHTS / "Wan2.1-I2V-14B-480P"
+    if wan_dir.exists():
+        shutil.rmtree(wan_dir, ignore_errors=True)
 
     try:
         _hf_download(["Wan-AI/Wan2.1-I2V-14B-480P"], WEIGHTS / "Wan2.1-I2V-14B-480P", timeout=7200)
         _hf_download(["TencentGameMate/chinese-wav2vec2-base"], WEIGHTS / "chinese-wav2vec2-base", timeout=1800)
         _hf_download(["TencentGameMate/chinese-wav2vec2-base", "model.safetensors", "--revision", "refs/pr/1"], WEIGHTS / "chinese-wav2vec2-base", timeout=1800)
         _hf_download(["MeiGen-AI/InfiniteTalk"], WEIGHTS / "InfiniteTalk", timeout=3600)
+        _SENTINEL.touch()
         WEIGHTS_READY = True
     finally:
         shutil.rmtree(lock_dir, ignore_errors=True)
