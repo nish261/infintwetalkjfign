@@ -26,6 +26,7 @@ COPY . /workspace/InfiniteTalk
 ENV INFINITETALK_ROOT=/workspace/InfiniteTalk \
     INFINITETALK_WEIGHTS=/runpod-volume/infinitetalk/weights \
     INFINITETALK_STEPS=8 \
-    INFINITETALK_SIZE=infinitetalk-480
+    INFINITETALK_SIZE=infinitetalk-480 \
+    HF_HUB_DISABLE_XET=1
 
 CMD ["python", "runpod_app/worker.py"]
