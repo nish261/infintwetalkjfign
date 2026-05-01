@@ -212,11 +212,15 @@ def handler(job):
             payload.get("mode", "streaming"),
             "--motion_frame",
             str(int(payload.get("motion_frame", 9))),
-            "--num_persistent_param_in_dit",
-            str(int(payload.get("num_persistent_param_in_dit", 0))),
             "--save_file",
             str(save_file),
         ]
+
+        if payload.get("num_persistent_param_in_dit") is not None:
+            cmd.extend([
+                "--num_persistent_param_in_dit",
+                str(int(payload["num_persistent_param_in_dit"])),
+            ])
 
         if payload.get("quant", True):
             quant_path = WEIGHTS / "InfiniteTalk/quant_models/infinitetalk_single_fp8.safetensors"

@@ -13,13 +13,13 @@ import xformers.ops
 try:
     import flash_attn_interface
     FLASH_ATTN_3_AVAILABLE = True
-except ModuleNotFoundError:
+except Exception:
     FLASH_ATTN_3_AVAILABLE = False
 
 try:
     import flash_attn
     FLASH_ATTN_2_AVAILABLE = True
-except ModuleNotFoundError:
+except Exception:
     FLASH_ATTN_2_AVAILABLE = False
 
 import warnings
@@ -118,22 +118,28 @@ def flash_attention(
             causal=causal,
             deterministic=deterministic)[0].unflatten(0, (b, lq))
     else:
-        assert FLASH_ATTN_2_AVAILABLE
-        x = flash_attn.flash_attn_varlen_func(
-            q=q,
-            k=k,
-            v=v,
-            cu_seqlens_q=torch.cat([q_lens.new_zeros([1]), q_lens]).cumsum(
-                0, dtype=torch.int32).to(q.device, non_blocking=True),
-            cu_seqlens_k=torch.cat([k_lens.new_zeros([1]), k_lens]).cumsum(
-                0, dtype=torch.int32).to(q.device, non_blocking=True),
-            max_seqlen_q=lq,
-            max_seqlen_k=lk,
-            dropout_p=dropout_p,
-            softmax_scale=softmax_scale,
-            causal=causal,
-            window_size=window_size,
-            deterministic=deterministic).unflatten(0, (b, lq))
+        if FLASH_ATTN_2_AVAILABLE:
+            x = flash_attn.flash_attn_varlen_func(
+                q=q,
+                k=k,
+                v=v,
+                cu_seqlens_q=torch.cat([q_lens.new_zeros([1]), q_lens]).cumsum(
+                    0, dtype=torch.int32).to(q.device, non_blocking=True),
+                cu_seqlens_k=torch.cat([k_lens.new_zeros([1]), k_lens]).cumsum(
+                    0, dtype=torch.int32).to(q.device, non_blocking=True),
+                max_seqlen_q=lq,
+                max_seqlen_k=lk,
+                dropout_p=dropout_p,
+                softmax_scale=softmax_scale,
+                causal=causal,
+                window_size=window_size,
+                deterministic=deterministic).unflatten(0, (b, lq))
+        else:
+            q_x = q.unflatten(0, (b, lq))
+            k_x = k.unflatten(0, (b, lk))
+            v_x = v.unflatten(0, (b, lk))
+            x = xformers.ops.memory_efficient_attention(
+                q_x, k_x, v_x, scale=softmax_scale, p=dropout_p).flatten(0, 1)
 
     # output
     return x.type(out_dtype)
