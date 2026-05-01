@@ -28,4 +28,4 @@ ENV INFINITETALK_ROOT=/workspace/InfiniteTalk \
     INFINITETALK_STEPS=8 \
     INFINITETALK_SIZE=infinitetalk-480
 
-CMD ["python", "runpod_app/worker.py", "--rp_serve_api", "--rp_api_host", "0.0.0.0", "--rp_api_port", "8000"]
+CMD ["python", "runpod_app/worker.py"]
