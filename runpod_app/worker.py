@@ -193,6 +193,8 @@ def handler(job):
             str(int(payload.get("motion_frame", 9))),
             "--save_file",
             str(save_file),
+            "--offload_model", "False",
+            "--t5_cpu",
         ]
 
         if payload.get("num_persistent_param_in_dit") is not None:
