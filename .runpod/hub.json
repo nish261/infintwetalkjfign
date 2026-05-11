@@ -1,0 +1,18 @@
+{
+    "title": "InfiniteTalk_Runpod_hub",
+    "description": "InfiniteTalk is an unlimited-length talking video generation​​ model that supports both audio-driven video-to-video and image-to-video generation",
+    "type": "serverless",
+    "category": "video",
+    "iconUrl": "https://github.com/wlsdml1114/Engui_Studio/blob/main/assets/logo.png?raw=true",
+  
+    "config": {
+      "runsOn": "GPU",
+      "containerDiskInGb": 280,
+  
+      "gpuCount": 1,
+      "gpuIds": "ADA_24,ADA_32_PRO",
+      "allowedCudaVersions": [
+        "12.8"
+      ]
+    }
+}
