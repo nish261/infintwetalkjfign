@@ -69,10 +69,11 @@ def save_base64_to_file(base64_data, temp_dir, output_filename):
         decoded_data = base64.b64decode(base64_data)
 
         # 디렉토리가 존재하지 않으면 생성
-        os.makedirs(temp_dir, exist_ok=True)
+        target_dir = os.path.abspath(os.path.join("/tmp", temp_dir))
+        os.makedirs(target_dir, exist_ok=True)
 
         # 파일로 저장
-        file_path = os.path.abspath(os.path.join("/tmp", temp_dir, output_filename))
+        file_path = os.path.abspath(os.path.join(target_dir, output_filename))
         with open(file_path, "wb") as f:
             f.write(decoded_data)
 
