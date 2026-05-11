@@ -28,11 +28,13 @@ def truncate_base64_for_log(base64_str, max_length=50):
 
 server_address = os.getenv("SERVER_ADDRESS", "127.0.0.1")
 client_id = str(uuid.uuid4())
+COMFY_INPUT_DIR = os.getenv("COMFY_INPUT_DIR", "/ComfyUI/input")
 
 
 def download_file_from_url(url, output_path):
     """URL에서 파일을 다운로드하는 함수"""
     try:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         # wget을 사용하여 파일 다운로드
         result = subprocess.run(
             ["wget", "-O", output_path, "--no-verbose", "--timeout=30", url],
@@ -69,7 +71,7 @@ def save_base64_to_file(base64_data, temp_dir, output_filename):
         decoded_data = base64.b64decode(base64_data)
 
         # 디렉토리가 존재하지 않으면 생성
-        target_dir = os.path.abspath(os.path.join("/tmp", temp_dir))
+        target_dir = os.path.abspath(os.path.join(COMFY_INPUT_DIR, temp_dir))
         os.makedirs(target_dir, exist_ok=True)
 
         # 파일로 저장
@@ -93,8 +95,7 @@ def process_input(input_data, temp_dir, output_filename, input_type):
     elif input_type == "url":
         # URL인 경우 다운로드
         logger.info(f"🌐 URL 입력 처리: {input_data}")
-        os.makedirs(temp_dir, exist_ok=True)
-        file_path = os.path.abspath(os.path.join(temp_dir, output_filename))
+        file_path = os.path.abspath(os.path.join(COMFY_INPUT_DIR, temp_dir, output_filename))
         return download_file_from_url(input_data, file_path)
     elif input_type == "base64":
         # Base64인 경우 디코딩하여 저장
@@ -102,6 +103,18 @@ def process_input(input_data, temp_dir, output_filename, input_type):
         return save_base64_to_file(input_data, temp_dir, output_filename)
     else:
         raise Exception(f"지원하지 않는 입력 타입: {input_type}")
+
+
+def comfy_input_ref(file_path):
+    """Return the filename format expected by ComfyUI LoadImage/LoadAudio nodes."""
+    abs_path = os.path.abspath(file_path)
+    input_root = os.path.abspath(COMFY_INPUT_DIR)
+    try:
+        if os.path.commonpath([abs_path, input_root]) == input_root:
+            return os.path.relpath(abs_path, input_root).replace(os.sep, "/")
+    except ValueError:
+        pass
+    return file_path
 
 
 def queue_prompt(prompt, input_type="image", person_count="single"):
@@ -465,13 +478,13 @@ def handler(job):
     # 워크플로우 노드 설정
     if input_type == "image":
         # I2V 워크플로우: 이미지 입력 설정
-        prompt["284"]["inputs"]["image"] = media_path
+        prompt["284"]["inputs"]["image"] = comfy_input_ref(media_path)
     else:
         # V2V 워크플로우: 비디오 입력 설정
-        prompt["228"]["inputs"]["video"] = media_path
+        prompt["228"]["inputs"]["video"] = comfy_input_ref(media_path)
 
     # 공통 설정
-    prompt["125"]["inputs"]["audio"] = wav_path
+    prompt["125"]["inputs"]["audio"] = comfy_input_ref(wav_path)
     prompt["241"]["inputs"]["positive_prompt"] = prompt_text
     prompt["245"]["inputs"]["value"] = width
     prompt["246"]["inputs"]["value"] = height
@@ -483,10 +496,10 @@ def handler(job):
         # 워크플로우 타입에 따라 두 번째 오디오 노드 설정
         if input_type == "image":  # I2V_multi.json의 경우
             if "307" in prompt:
-                prompt["307"]["inputs"]["audio"] = wav_path_2
+                prompt["307"]["inputs"]["audio"] = comfy_input_ref(wav_path_2)
         else:  # V2V_multi.json의 경우
             if "313" in prompt:
-                prompt["313"]["inputs"]["audio"] = wav_path_2
+                prompt["313"]["inputs"]["audio"] = comfy_input_ref(wav_path_2)
 
     ws_url = f"ws://{server_address}:8188/ws?clientId={client_id}"
     logger.info(f"Connecting to WebSocket: {ws_url}")
