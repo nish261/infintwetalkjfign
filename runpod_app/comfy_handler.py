@@ -30,6 +30,8 @@ def truncate_base64_for_log(base64_str, max_length=50):
 server_address = os.getenv("SERVER_ADDRESS", "127.0.0.1")
 client_id = str(uuid.uuid4())
 COMFY_INPUT_DIR = os.getenv("COMFY_INPUT_DIR", "/ComfyUI/input")
+COMFY_OUTPUT_DIR = os.getenv("COMFY_OUTPUT_DIR", "/ComfyUI/output")
+COMFY_TEMP_DIR = os.getenv("COMFY_TEMP_DIR", "/ComfyUI/temp")
 
 
 def download_file_from_url(url, output_path):
@@ -183,15 +185,61 @@ def get_history(prompt_id):
         return json.loads(response.read())
 
 
+def resolve_comfy_output_file(output):
+    """Resolve ComfyUI /history media output to a local file path."""
+    if not isinstance(output, dict):
+        return None
+
+    fullpath = output.get("fullpath")
+    if fullpath and os.path.exists(fullpath):
+        return fullpath
+
+    filename = output.get("filename")
+    if not filename:
+        return None
+
+    subfolder = output.get("subfolder") or ""
+    folder_type = output.get("type") or "output"
+    roots = {
+        "output": COMFY_OUTPUT_DIR,
+        "temp": COMFY_TEMP_DIR,
+        "input": COMFY_INPUT_DIR,
+    }
+    root = roots.get(folder_type, COMFY_OUTPUT_DIR)
+    candidate = os.path.abspath(os.path.join(root, subfolder, filename))
+    if os.path.exists(candidate):
+        return candidate
+
+    try:
+        os.makedirs("/tmp/comfy_outputs", exist_ok=True)
+        output_path = os.path.abspath(
+            os.path.join("/tmp/comfy_outputs", f"{uuid.uuid4()}_{filename}")
+        )
+        with open(output_path, "wb") as f:
+            f.write(get_image(filename, subfolder, folder_type))
+        logger.info(f"ComfyUI output fetched through /view: {output_path}")
+        return output_path
+    except Exception as e:
+        logger.warning(f"ComfyUI output file could not be resolved: {output} ({e})")
+        return None
+
+
 def get_videos(ws, prompt, input_type="image", person_count="single"):
     prompt_id = queue_prompt(prompt, input_type, person_count)["prompt_id"]
     logger.info(f"워크플로우 실행 시작: prompt_id={prompt_id}")
 
     output_videos = {}
+    execution_errors = []
     while True:
         out = ws.recv()
         if isinstance(out, str):
             message = json.loads(out)
+            if message["type"] == "execution_error":
+                logger.error(f"ComfyUI execution error: {message['data']}")
+                execution_errors.append(message["data"])
+            elif message["type"] == "execution_interrupted":
+                logger.error(f"ComfyUI execution interrupted: {message['data']}")
+                execution_errors.append(message["data"])
             if message["type"] == "executing":
                 data = message["data"]
                 if data["node"] is not None:
@@ -204,6 +252,11 @@ def get_videos(ws, prompt, input_type="image", person_count="single"):
 
     logger.info(f"히스토리 조회 중: prompt_id={prompt_id}")
     history = get_history(prompt_id)[prompt_id]
+    if execution_errors:
+        raise Exception(f"ComfyUI execution failed: {execution_errors[-1]}")
+    status = history.get("status", {})
+    if status.get("status_str") not in (None, "success"):
+        raise Exception(f"ComfyUI workflow did not succeed: {status}")
     logger.info(f"출력 노드 수: {len(history['outputs'])}")
 
     for node_id in history["outputs"]:
@@ -214,8 +267,10 @@ def get_videos(ws, prompt, input_type="image", person_count="single"):
                 f"노드 {node_id}에서 {len(node_output['gifs'])}개의 비디오 발견"
             )
             for idx, video in enumerate(node_output["gifs"]):
-                # fullpath를 그대로 반환 (base64 인코딩하지 않음)
-                video_path = video["fullpath"]
+                video_path = resolve_comfy_output_file(video)
+                if not video_path:
+                    logger.warning(f"비디오 출력 경로를 확인할 수 없습니다: {video}")
+                    continue
                 logger.info(f"비디오 파일 경로: {video_path}")
 
                 # 파일 존재 여부 및 크기 확인
