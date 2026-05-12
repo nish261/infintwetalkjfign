@@ -11,8 +11,49 @@ This setup has two parts:
 - Worker type: Flex
 - Minimum workers: `0`
 - Maximum workers: `1` to prevent surprise spend
-- GPU: start with 48GB VRAM such as A40/A6000. Try 24GB only with fp8 quantization and `num_persistent_param_in_dit=0`.
+- GPU: start with 48GB VRAM. The Hub template uses `AMPERE_48,ADA_48_PRO,AMPERE_80,ADA_80_PRO`.
 - Default app settings: `480p`, `8` steps. Increase steps only when quality is worth the cost.
+
+## Runtime And Cost Estimate
+
+Measured live SaaS smoke test:
+
+- Output: 2 second image-to-video MP4
+- Resolution: `512x512`
+- Steps: `6`
+- Execution time: `84.478` seconds
+- Observed worker price: `$0.77/hr`
+
+Linear estimate for the current workflow:
+
+```text
+estimated_runtime_seconds =
+  84.478
+  * (target_video_seconds / 2)
+  * ((target_width * target_height) / (512 * 512))
+  * (target_steps / 6)
+```
+
+For the app's `infinitetalk-720` setting, the SaaS sends `720x720`, not `1280x720`.
+
+| Target | Estimated one-worker runtime | Estimated compute cost at $0.77/hr | Workers for ~10 min wall time |
+| --- | ---: | ---: | ---: |
+| 60s at 512x512, 6 steps | 42.2 min | $0.54 | 5 |
+| 60s at 720x720, 6 steps | 83.5 min | $1.07 | 9 |
+| 60s at 1280x720, 6 steps | 148.5 min | $1.91 | 15 |
+
+Workers reduce wall time only if the request is split into chunks and stitched after rendering. More workers do not speed up one monolithic ComfyUI job.
+
+GPU upgrade break-even:
+
+| GPU class | RunPod serverless list price | Must be faster than the $0.77/hr worker by |
+| --- | ---: | ---: |
+| A6000/A40 48GB | $1.22/hr | 1.58x |
+| L40/L40S/6000 Ada 48GB | $1.90/hr | 2.47x |
+| A100 80GB | $2.72/hr | 3.53x |
+| H100 80GB | $4.18/hr | 5.43x |
+
+If a GPU is slower than its break-even multiple, it may still finish sooner but it costs more per completed video.
 
 ## Build Worker Image
 

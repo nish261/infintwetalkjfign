@@ -7,10 +7,10 @@
   
     "config": {
       "runsOn": "GPU",
-      "containerDiskInGb": 280,
-  
+      "containerDiskInGb": 80,
+
       "gpuCount": 1,
-      "gpuIds": "ADA_24,ADA_32_PRO",
+      "gpuIds": "AMPERE_48,ADA_48_PRO,AMPERE_80,ADA_80_PRO",
       "allowedCudaVersions": [
         "12.8"
       ]
